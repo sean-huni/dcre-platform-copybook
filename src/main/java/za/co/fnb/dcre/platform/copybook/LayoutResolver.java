@@ -18,6 +18,19 @@ package za.co.fnb.dcre.platform.copybook;
  * <p>Fail closed. A record the format does not recognise is a malformed file,
  * so an implementation throws its own domain exception rather than returning a
  * default layout; the reader rejects a {@code null} return for the same reason.
+ *
+ * <p>{@code [!CONVENTION-OVERRIDE]} The Task 3-REVISED brief specifies
+ * {@code LayoutResolver} as mapping "a line to its layout by length". This
+ * interface takes the record INDEX as well, which is a deliberate widening of
+ * the written contract. Canon being honoured rather than broken: fail closed
+ * and least surprise (OWASP secure-by-default, https://owasp.org/), because a
+ * length-only discriminator is provably ambiguous for this format.
+ * SPEC-DATA-MODEL.md:49 makes header padding to the version's detail LRECL the
+ * attested physical rule, and every committed sample has a padded header, so a
+ * length-only resolver would cut record 0 of a real generator file with the
+ * DETAIL table: {@code record_type} reads "00" where the header table reads
+ * "0002", silently and forever. The narrower signature was specified against
+ * an assumption the spec contradicts.
  */
 @FunctionalInterface
 public interface LayoutResolver {

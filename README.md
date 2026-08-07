@@ -19,7 +19,7 @@ dependencies.
 | `Layouts` | the recovered collections tables: header 109, V1 161, V2 169, V3 204 |
 | `MandateLayouts` | the mandate instruction book tables: header 109, detail 285 (SYNTHETIC, A-61) |
 | `LayoutResolver` | picks the layout for ONE record, by the format's own discriminator |
-| `CopybookReader` | reads a whole file into records, resolving the layout per record |
+| `CopybookReader` | `forEachRecord` streams a record at a time and returns the count; `read` gives the whole list |
 | `FixedWidthRecord` | index, raw line, layout, and `field(name)` |
 | `ShortRecordException` | a record shorter than its own layout, carrying the record index |
 
@@ -33,9 +33,16 @@ LayoutResolver collections = (index, line) -> index == 0 ? Layouts.HEADER : swit
         default  -> throw new FileFatalException("detail LRECL " + line.length() + " matches no layout");
 };
 
-List<FixedWidthRecord> records = CopybookReader.read(path, collections);
-String ref = records.get(1).field("end_to_end");
+// Streaming, one record held at a time. Returns the record count.
+long records = CopybookReader.forEachRecord(path, collections, record -> sink.accept(record));
+
+// Or the whole file at once, when random access to every record is genuinely needed.
+String ref = CopybookReader.read(path, collections).get(1).field("end_to_end");
 ```
+
+**Prefer `forEachRecord`.** These files are large, which is why the partitioned readers exist. `read`
+holds the whole file plus a wrapper per record, and a caller that wants only the header and the count
+should not pay that.
 
 ## Four contracts worth knowing before you use it
 

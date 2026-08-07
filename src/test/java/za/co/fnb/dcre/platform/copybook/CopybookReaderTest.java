@@ -140,6 +140,48 @@ class CopybookReaderTest {
     }
 
     @Test
+    void forEachRecordStreamsInOrderAndReturnsTheCountWithoutHoldingTheFile() throws Exception {
+        Path file = write(header(109), detailV2("FIRST"), detailV2("SECOND"), detailV3("THIRD"));
+
+        List<String> seen = new java.util.ArrayList<>();
+        java.util.concurrent.atomic.AtomicLong live = new java.util.concurrent.atomic.AtomicLong();
+        long count = CopybookReader.forEachRecord(file, COLLECTIONS, record -> {
+            live.incrementAndGet();
+            seen.add(record.index() + ":" + record.line().length());
+        });
+
+        assertThat(count).isEqualTo(4);
+        assertThat(seen)
+                .as("records arrive in file order, one at a time")
+                .containsExactly("0:109", "1:169", "2:169", "3:204");
+        assertThat(live.get()).isEqualTo(4);
+    }
+
+    @Test
+    void forEachRecordAppliesTheSameGatesAsRead() throws Exception {
+        Path shortHeader = write(header(109).substring(0, 80));
+
+        assertThatThrownBy(() -> CopybookReader.forEachRecord(shortHeader, COLLECTIONS, r -> { }))
+                .isInstanceOf(ShortRecordException.class)
+                .hasMessageContaining("109");
+        assertThatThrownBy(() -> CopybookReader.forEachRecord(write(header(109)), (i, l) -> null, r -> { }))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("no layout resolved for record 0");
+    }
+
+    @Test
+    void readAndForEachRecordAgreeRecordForRecord() throws Exception {
+        Path file = write(header(169), detailV2("FIRST"), detailV3("SECOND"));
+
+        List<FixedWidthRecord> viaRead = CopybookReader.read(file, COLLECTIONS);
+        List<FixedWidthRecord> viaStream = new java.util.ArrayList<>();
+        long count = CopybookReader.forEachRecord(file, COLLECTIONS, viaStream::add);
+
+        assertThat(count).isEqualTo(viaRead.size());
+        assertThat(viaStream).isEqualTo(viaRead);
+    }
+
+    @Test
     void failsClosedWhenTheResolverHasNoLayoutForARecord() throws Exception {
         Path file = write(header(109));
 
