@@ -140,21 +140,31 @@ class CopybookReaderTest {
     }
 
     @Test
-    void forEachRecordStreamsInOrderAndReturnsTheCountWithoutHoldingTheFile() throws Exception {
+    void forEachRecordHandsEachRecordToTheSinkBeforeReadingTheNext() throws Exception {
         Path file = write(header(109), detailV2("FIRST"), detailV2("SECOND"), detailV3("THIRD"));
 
+        // The resolver is called once per record, INSIDE the read, so counting its
+        // calls measures how much of the file has been consumed at the moment the
+        // sink is handed a record. That is the difference between streaming and
+        // materialising, and it is the only thing here that can tell them apart: a
+        // reader that built the whole list first would report all 4 read before the
+        // sink ever saw record 0.
+        java.util.concurrent.atomic.AtomicLong read = new java.util.concurrent.atomic.AtomicLong();
+        LayoutResolver counting = (index, line) -> {
+            read.incrementAndGet();
+            return COLLECTIONS.layoutFor(index, line);
+        };
         List<String> seen = new java.util.ArrayList<>();
-        java.util.concurrent.atomic.AtomicLong live = new java.util.concurrent.atomic.AtomicLong();
-        long count = CopybookReader.forEachRecord(file, COLLECTIONS, record -> {
-            live.incrementAndGet();
-            seen.add(record.index() + ":" + record.line().length());
-        });
+
+        long count = CopybookReader.forEachRecord(file, counting,
+                record -> seen.add("record " + record.index() + " seen after " + read.get() + " read"));
 
         assertThat(count).isEqualTo(4);
-        assertThat(seen)
-                .as("records arrive in file order, one at a time")
-                .containsExactly("0:109", "1:169", "2:169", "3:204");
-        assertThat(live.get()).isEqualTo(4);
+        assertThat(seen).containsExactly(
+                "record 0 seen after 1 read",
+                "record 1 seen after 2 read",
+                "record 2 seen after 3 read",
+                "record 3 seen after 4 read");
     }
 
     @Test
