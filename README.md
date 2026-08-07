@@ -6,7 +6,7 @@ its own `build.gradle`, not a fork per family.
 
 This is a dependency, never a shared instance. No service code lives here and no service runs from
 here: `crr`, `prr` and `mrr` stay separate deployables with separate databases, and each declares
-`za.co.fnb.dcre:platform-copybook:0.1.0` for itself. That is Factor II of the
+`za.co.fnb.dcre:platform-copybook:0.2.0` for itself. That is Factor II of the
 12FactorApp Alignment (https://12factor.net/dependencies), explicit declaration and isolation of
 dependencies.
 
@@ -77,6 +77,18 @@ amount. One `log.debug(record)` downstream would land account numbers durably in
 ./gradlew test publishToMavenLocal
 ```
 
-Services consume it from mavenLocal as `za.co.fnb.dcre:platform-copybook:0.1.0`.
+Services consume it from mavenLocal as `za.co.fnb.dcre:platform-copybook:0.2.0`.
 `platform-files` depends on it too: the generic slicing lives here, and the family-specific exchange
 plumbing (`ExchangeLayout`, `R31Filename`, `StagedWrite`) stays there. Specific depends on generic.
+
+## Versioning
+
+`0.2.0`, not `0.1.0`. `0.1.0` was the first-attempt API: it carried `CopybookLayout` and `FieldSpec`
+and a `read(Path, CopybookLayout)` that bound one layout to a whole file. Deleting two public types
+and changing a public signature is a source-incompatible change, and SemVer
+(https://semver.org/, clause 8 on the 0.y.z line) makes that a minor bump rather than a silent
+in-place mutation of a fixed coordinate.
+
+The lesson that earned this paragraph: republishing a fixed coordinate with types REMOVED broke every
+trunk branch that still imported them, and nothing reported it, because a version that does not move
+gives a consumer no signal. One coordinate, one artifact.
