@@ -92,3 +92,9 @@ in-place mutation of a fixed coordinate.
 The lesson that earned this paragraph: republishing a fixed coordinate with types REMOVED broke every
 trunk branch that still imported them, and nothing reported it, because a version that does not move
 gives a consumer no signal. One coordinate, one artifact.
+
+## Related repositories
+
+The complete, current list of live DCRE repositories (stage services, orchestrator, platform libraries, infra and tooling) lives in one place: the [DCRE design register README](https://github.com/sean-huni/dcre-design-register#repositories). Deprecated and archived repositories are deliberately absent from it. This README does not copy that list, so it cannot drift.
+
+- Design register: https://github.com/sean-huni/dcre-design-register (start at `docs/specs/DESIGN-REGISTER.md`; the diagrams in `docs/diagrams/` are the specification)
