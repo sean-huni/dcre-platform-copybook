@@ -1,29 +1,31 @@
 # platform-copybook
 
-The shared copybook DEPENDENCY for DCRE. Collections, payments and mandates all read files cut by
-the same toolkit, so the layout tables and the reader are one library that each service imports in
-its own `build.gradle`, not a fork per family.
+> Part of the DCRE fleet. For the fleet map, the rulings and the diagrams that specify every stage, start at the [DCRE design register](https://github.com/sean-huni/dcre-design-register); the complete list of live repositories is its [Repositories](https://github.com/sean-huni/dcre-design-register#repositories) table.
 
-This is a dependency, never a shared instance. No service code lives here and no service runs from
-here: `crr`, `prr` and `mrr` stay separate deployables with separate databases, and each declares
-`za.co.fnb.dcre:platform-copybook:0.2.0` for itself. That is Factor II of the
-12FactorApp Alignment (https://12factor.net/dependencies), explicit declaration and isolation of
-dependencies.
+The shared copybook dependency for DCRE: fixed-width layout tables and a streaming,
+per-record-layout reader for the files that collections, payments and mandates all receive from the
+same toolkit.
 
-## What it holds
+## What it does
+
+A library, not a service: no service code lives here, it has no runtime of its own, and nothing runs
+from it. Each consuming reader stays a separate deployable with its own database and declares
+`za.co.fnb.dcre:platform-copybook:0.2.0` for itself, which is Factor II of the 12FactorApp Alignment
+(https://12factor.net/dependencies): explicit declaration and isolation of dependencies. Plain Java,
+zero runtime dependencies.
+
+Public API, package `za.co.fnb.dcre.platform.copybook`:
 
 | Type | What it is |
 |---|---|
 | `LayoutField` | one field's NAME and WIDTH. No offset, by design |
-| `FixedWidthLayout` | a field table; offsets DERIVE from the widths in order |
-| `Layouts` | the recovered collections tables: header 109, V1 161, V2 169, V3 204 |
-| `MandateLayouts` | the mandate instruction book tables: header 109, detail 285 (SYNTHETIC, A-61) |
+| `FixedWidthLayout` | a field table; offsets DERIVE from the widths in order; `slice(line, field)`, `length()` |
+| `Layouts` | the recovered collections tables: `HEADER` 109, `DETAIL_V1` 161, `DETAIL_V2` 169, `DETAIL_V3` 204 |
+| `MandateLayouts` | the mandate instruction book tables: `HEADER` 109, `DETAIL` 285 (SYNTHETIC, A-61) |
 | `LayoutResolver` | picks the layout for ONE record, by the format's own discriminator |
 | `CopybookReader` | `forEachRecord` streams a record at a time and returns the count; `read` gives the whole list |
 | `FixedWidthRecord` | index, raw line, layout, and `field(name)` |
-| `ShortRecordException` | a record shorter than its own layout, carrying the record index |
-
-## API
+| `ShortRecordException` | an `IllegalArgumentException` for a record shorter than its own layout, carrying the record index, actual and declared length |
 
 ```java
 LayoutResolver collections = (index, line) -> index == 0 ? Layouts.HEADER : switch (line.length()) {
@@ -40,11 +42,32 @@ long records = CopybookReader.forEachRecord(path, collections, record -> sink.ac
 String ref = CopybookReader.read(path, collections).get(1).field("end_to_end");
 ```
 
+`FileFatalException` in the example is the caller's own type; the library only requires that a
+resolver which cannot answer throws.
+
 **Prefer `forEachRecord`.** These files are large, which is why the partitioned readers exist. `read`
 holds the whole file plus a wrapper per record, and a caller that wants only the header and the count
 should not pay that.
 
-## Four contracts worth knowing before you use it
+## Consumers
+
+Counted from each fleet repo's `build.gradle` on `origin/dev` (local clones, not fetched), plus
+AGT (checked 2026-09-28):
+
+| Consumer | Version | Types imported in `src/main` |
+|---|---|---|
+| `crr` | `0.2.0` | `CopybookReader`, `FixedWidthLayout`, `FixedWidthRecord`, `LayoutResolver`, `Layouts`, `ShortRecordException` |
+| `prr` | `0.2.0` | same as `crr` |
+| `mrr` | `0.2.0` | `FixedWidthLayout`, `MandateLayouts` |
+| `ctv` | `0.2.0` | declared, no import in `src/main` |
+| AGT, the other platform libraries | not consumers | |
+
+`platform-files` does NOT depend on this library: it carries its own `FixedWidthLayout`,
+`LayoutField`, `Layouts` and `MandateLayouts` in package `za.co.fnb.dcre.platform.files`.
+
+## Architecture and principles
+
+Four contracts worth knowing before you use it:
 
 **Offsets are DERIVED, never declared.** A field carries a width and its position in the table. A
 gap or an overlap between two fields cannot be written down at all, so the class of defect where one
@@ -71,27 +94,56 @@ a real one ingest identically.
 `toString` would print the raw line, which on a detail record is debtor_name, debtor_account and
 amount. One `log.debug(record)` downstream would land account numbers durably in the log collector.
 
-## Build
+## Prerequisites
+
+- Java 25 (`.sdkmanrc`: `java=25-tem`; `build.gradle` sets `sourceCompatibility` /
+  `targetCompatibility` 25)
+- Gradle wrapper 9.5.1 (committed)
+- No Docker, no database, no upstream platform library
+
+## Build and publish
+
+Coordinates: `za.co.fnb.dcre:platform-copybook:0.2.0` (binary and sources jar). Distribution is Maven
+Local only; no remote repository is configured.
 
 ```bash
 ./gradlew test publishToMavenLocal
 ```
 
-Services consume it from mavenLocal as `za.co.fnb.dcre:platform-copybook:0.2.0`.
-`platform-files` depends on it too: the generic slicing lives here, and the family-specific exchange
-plumbing (`ExchangeLayout`, `R31Filename`, `StagedWrite`) stays there. Specific depends on generic.
+```groovy
+repositories { mavenCentral(); mavenLocal() }
+dependencies {
+    implementation 'za.co.fnb.dcre:platform-copybook:0.2.0'
+}
+```
 
-## Versioning
+The library is baked into each consuming reader's image at that service's build; after a change,
+publish a NEW version and bump the consumers.
 
-`0.2.0`, not `0.1.0`. `0.1.0` was the first-attempt API: it carried `CopybookLayout` and `FieldSpec`
-and a `read(Path, CopybookLayout)` that bound one layout to a whole file. Deleting two public types
-and changing a public signature is a source-incompatible change, and SemVer
+**Why `0.2.0`, not `0.1.0`.** `0.1.0` was the first-attempt API: it carried `CopybookLayout` and
+`FieldSpec` and a `read(Path, CopybookLayout)` that bound one layout to a whole file. Deleting two
+public types and changing a public signature is a source-incompatible change, and SemVer
 (https://semver.org/, clause 8 on the 0.y.z line) makes that a minor bump rather than a silent
 in-place mutation of a fixed coordinate.
 
 The lesson that earned this paragraph: republishing a fixed coordinate with types REMOVED broke every
 trunk branch that still imported them, and nothing reported it, because a version that does not move
 gives a consumer no signal. One coordinate, one artifact.
+
+## Configuration
+
+None. The library reads no environment variables, binds no properties and ships no
+`application.yml`; the layout choice is the caller's `LayoutResolver`.
+
+## Testing
+
+```bash
+./gradlew test
+```
+
+JUnit Jupiter (BOM 6.0.2) and AssertJ, no Docker. 4 test classes, 28 `@Test` methods (counted from
+`src/test` at HEAD): `CopybookReaderTest`, `FixedWidthLayoutTest`, `LayoutsTest`,
+`MandateLayoutsTest` (including the header 109 / detail 285 widths).
 
 ## Related repositories
 
